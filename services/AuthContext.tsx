@@ -60,13 +60,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const initAuth = async () => {
             try {
-                // Timeout de seguridad de 10 segundos para no bloquear la app
+                // Timeout de seguridad de 30 segundos para no bloquear la app
                 const timeoutFlag = setTimeout(() => {
                     if (isMounted && loading) {
                         console.warn("⚠️ Auth initialization timeout reached. Forcing loading state to false.");
                         setLoading(false);
                     }
-                }, 10000);
+                }, 30000);
 
                 const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
