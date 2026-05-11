@@ -60,15 +60,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const initAuth = async () => {
             try {
-                // Timeout de seguridad de 30 segundos para no bloquear la app
+                // Fast path: read cached Supabase session from localStorage synchronously
+                // so the UI unblocks immediately for returning users without waiting for the network
+                const cachedKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+                if (cachedKey) {
+                    try {
+                        const cached = JSON.parse(localStorage.getItem(cachedKey) || '{}');
+                        if (cached?.user && cached?.expires_at && cached.expires_at * 1000 > Date.now()) {
+                            if (isMounted) {
+                                setUser(cached.user);
+                                setLoading(false); // unblock UI immediately
+                            }
+                            fetchProfile(cached.user.id).catch(console.warn);
+                        }
+                    } catch { /* ignore parse errors */ }
+                }
+
+                // Reduced to 8s — if Supabase doesn't respond (cold start), don't block the app
                 const timeoutFlag = setTimeout(() => {
-                    if (isMounted && loading) {
-                        console.warn("⚠️ Auth initialization timeout reached. Forcing loading state to false.");
+                    if (isMounted) {
+                        console.warn("⚠️ Auth initialization timeout after 8s. Proceeding.");
                         setLoading(false);
                     }
-                }, 30000);
+                }, 8000);
 
                 const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+                clearTimeout(timeoutFlag);
 
                 if (sessionError) throw sessionError;
 
@@ -77,9 +94,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     await fetchProfile(session.user.id);
                     setupActivityListeners();
                     resetTimer();
+                } else if (isMounted) {
+                    // No session — clear any stale cached user
+                    setUser(null);
+                    setProfile(null);
                 }
-
-                clearTimeout(timeoutFlag);
             } catch (err) {
                 console.error("💥 Error during auth initialization:", err);
             } finally {
