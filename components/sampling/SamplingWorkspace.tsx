@@ -219,6 +219,8 @@ const SamplingWorkspace: React.FC<Props> = ({ appState, setAppState, currentMeth
             let results;
 
             try {
+                // yield al event loop para que el spinner sea visible antes del bloqueo síncrono
+                await new Promise(resolve => setTimeout(resolve, 50));
                 results = calculateSampleSize(currentAppState, limitedRows);
                 const calcTime = Date.now() - calcStartTime;
                 console.log(`⚡ Cálculo completado en ${calcTime}ms`);
@@ -374,6 +376,32 @@ const SamplingWorkspace: React.FC<Props> = ({ appState, setAppState, currentMeth
                             }
                         }
                         */
+
+                    // ✅ FIX: También guardar en audit_results para que el reload funcione
+                    // (el reload lee de audit_results, no de audit_historical_samples)
+                    try {
+                        const wip_json = {
+                            ...(appState.full_results_storage || {}),
+                            [appState.samplingMethod]: {
+                                ...results,
+                                method: appState.samplingMethod,
+                                sampling_params: appState.samplingParams
+                            },
+                            last_method: appState.samplingMethod
+                        };
+                        await fetch('/api/sampling_proxy?action=save_work_in_progress', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                population_id: appState.selectedPopulation.id,
+                                results_json: wip_json,
+                                sample_size: results.sampleSize
+                            })
+                        });
+                        console.log("✅ audit_results sincronizado para recarga persistente");
+                    } catch (wipError) {
+                        console.warn("⚠️ No se pudo sincronizar audit_results (non-critical):", wipError);
+                    }
 
                     } catch (saveError) {
                         console.error("❌ Error detallado en guardado:", saveError);

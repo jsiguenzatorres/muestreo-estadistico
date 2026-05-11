@@ -58,6 +58,7 @@ export interface AuditObservation {
     descripcion: string;
     severidad: 'Bajo' | 'Medio' | 'Alto';
     tipo: 'Control' | 'Sustantivo' | 'Cumplimiento';
+    monto_observado?: number;
     creado_por?: string;
     evidencias?: ObservationEvidence[];
     review_comments?: {

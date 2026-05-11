@@ -32,6 +32,7 @@ const ObservationsManager: React.FC<Props> = ({ populationId, method, onObservat
         descripcion: '',
         severidad: 'Medio',
         tipo: 'Sustantivo',
+        monto_observado: undefined,
         evidencias: []
     });
 
@@ -146,6 +147,7 @@ const ObservationsManager: React.FC<Props> = ({ populationId, method, onObservat
                 descripcion: formData.descripcion,
                 severidad: formData.severidad,
                 tipo: formData.tipo,
+                monto_observado: formData.monto_observado ?? null,
                 evidencias: finalEvidencias,
                 id_poblacion: populationId,
                 metodo: method,
@@ -166,7 +168,7 @@ const ObservationsManager: React.FC<Props> = ({ populationId, method, onObservat
             await fetchObservations();
             setIsAdding(false);
             setEditingId(null);
-            setFormData({ titulo: '', descripcion: '', severidad: 'Medio', tipo: 'Sustantivo', evidencias: [] });
+            setFormData({ titulo: '', descripcion: '', severidad: 'Medio', tipo: 'Sustantivo', monto_observado: undefined, evidencias: [] });
 
         } catch (err: any) {
             addToast(`ERROR AL GUARDAR (PROXY): ${err.message}`, 'error');
@@ -202,6 +204,7 @@ const ObservationsManager: React.FC<Props> = ({ populationId, method, onObservat
             descripcion: obs.descripcion,
             severidad: obs.severidad,
             tipo: obs.tipo,
+            monto_observado: obs.monto_observado,
             evidencias: Array.isArray(obs.evidencias) ? [...obs.evidencias] : []
         });
         setIsAdding(false);
@@ -307,6 +310,18 @@ const ObservationsManager: React.FC<Props> = ({ populationId, method, onObservat
                             </select>
                         </div>
                     </div>
+                    <div className="mb-8">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest">Monto Observado <span className="text-slate-300 normal-case font-medium">(opcional)</span></label>
+                        <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={formData.monto_observado ?? ''}
+                            onChange={e => setFormData({ ...formData, monto_observado: e.target.value ? parseFloat(e.target.value) : undefined })}
+                            className="w-full px-6 py-4 rounded-2xl border-slate-200 bg-slate-50 text-xs font-bold"
+                        />
+                    </div>
 
                     <div className="mb-8">
                         <label className="block text-[10px] font-black text-slate-400 uppercase mb-3 tracking-widest">Descripción</label>
@@ -344,43 +359,85 @@ const ObservationsManager: React.FC<Props> = ({ populationId, method, onObservat
                 </div>
             )}
 
-            <div className="grid grid-cols-1 gap-8">
+            <div className="space-y-6">
                 {loading ? (
                     <div className="text-center py-20"><i className="fas fa-circle-notch fa-spin text-4xl text-blue-200 mb-4"></i></div>
                 ) : observations.length === 0 ? (
                     !isAdding && <div className="text-center py-24 border-4 border-dashed border-slate-50 rounded-[3rem] bg-slate-50/20 text-slate-300 font-black uppercase">Sin Hallazgos</div>
                 ) : (
-                    observations.map(obs => {
-                        const severity = obs.severidad === 'Alto' ? 'rose' : obs.severidad === 'Medio' ? 'amber' : 'emerald';
+                    (['Alto', 'Medio', 'Bajo'] as const).map(nivel => {
+                        const grupo = observations.filter(o => o.severidad === nivel);
+                        if (grupo.length === 0) return null;
+                        const color = nivel === 'Alto' ? { bg: 'bg-rose-500', light: 'bg-rose-50', text: 'text-rose-600', border: 'border-rose-100' }
+                            : nivel === 'Medio' ? { bg: 'bg-amber-500', light: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-100' }
+                            : { bg: 'bg-emerald-500', light: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-100' };
+
+                        // Agrupar por Tipo dentro del nivel de riesgo
+                        const porTipo = grupo.reduce<Record<string, typeof grupo>>((acc, obs) => {
+                            const t = obs.tipo || 'Sin Tipo';
+                            if (!acc[t]) acc[t] = [];
+                            acc[t].push(obs);
+                            return acc;
+                        }, {});
+
+                        const totalMonto = grupo.reduce((s, o) => s + (o.monto_observado || 0), 0);
+
                         return (
-                            <div key={obs.id} className="relative bg-white border-2 border-slate-100 rounded-[2.5rem] p-10 transition-all hover:shadow-xl group overflow-hidden">
-                                <div className={`absolute left-0 top-0 bottom-0 w-2.5 bg-${severity}-500 opacity-20 group-hover:opacity-100`}></div>
-                                <div className="flex justify-between items-start mb-8">
-                                    <div className="flex gap-3">
-                                        <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-${severity}-50 text-${severity}-600 border border-${severity}-100`}>Severidad {obs.severidad}</span>
-                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-4 py-1.5 rounded-full border border-slate-100">{obs.tipo}</span>
+                            <div key={nivel} className="border-2 border-slate-100 rounded-[2rem] overflow-hidden">
+                                {/* Cabecera de nivel de riesgo */}
+                                <div className={`flex items-center justify-between px-8 py-4 ${color.light} border-b ${color.border}`}>
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-3 h-3 rounded-full ${color.bg}`}></div>
+                                        <span className={`text-xs font-black uppercase tracking-widest ${color.text}`}>Riesgo {nivel}</span>
+                                        <span className="text-[10px] font-bold text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-100">{grupo.length} hallazgo{grupo.length !== 1 ? 's' : ''}</span>
                                     </div>
-                                    <div className="flex gap-3 opacity-0 group-hover:opacity-100 transition-all">
-                                        <button onClick={() => startEdit(obs)} className="h-10 w-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center"><i className="fas fa-edit"></i></button>
-                                        <button onClick={() => setObsToDelete(obs.id!)} className="h-10 w-10 rounded-2xl bg-rose-50 text-rose-500 flex items-center justify-center"><i className="fas fa-trash-alt"></i></button>
-                                    </div>
+                                    {totalMonto > 0 && (
+                                        <span className={`text-[10px] font-black ${color.text}`}>
+                                            Monto: {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(totalMonto)}
+                                        </span>
+                                    )}
                                 </div>
-                                <h4 className="text-2xl font-black text-slate-800 mb-6">{obs.titulo}</h4>
-                                <div className="bg-slate-50 p-8 rounded-[2rem] border border-slate-100 mb-8"><p className="text-[13px] text-slate-600 italic">"{obs.descripcion}"</p></div>
-                                {Array.isArray(obs.evidencias) && obs.evidencias.length > 0 && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                                        {obs.evidencias.map((ev, idx) => (
-                                            <a key={idx} href={ev.url} target="_blank" rel="noopener noreferrer" className="flex items-center bg-white px-5 py-4 rounded-2xl border border-slate-200 hover:bg-blue-600 hover:text-white transition-all group/file shadow-sm">
-                                                <i className={`fas ${getFileIcon(ev.tipo)} text-2xl mr-4`}></i>
-                                                <span className="text-[11px] font-black truncate">{ev.nombre}</span>
-                                            </a>
-                                        ))}
+
+                                {/* Sub-grupos por Tipo */}
+                                {Object.entries(porTipo).map(([tipo, items]) => (
+                                    <div key={tipo}>
+                                        <div className="px-8 py-2 bg-slate-50 border-b border-slate-100">
+                                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{tipo}</span>
+                                        </div>
+                                        <div className="divide-y divide-slate-50">
+                                            {items.map(obs => (
+                                                <div key={obs.id} className="relative bg-white px-8 py-6 hover:bg-slate-50/50 transition-all group">
+                                                    <div className="flex justify-between items-start">
+                                                        <div className="flex-1 min-w-0">
+                                                            <h4 className="text-sm font-black text-slate-800 mb-1">{obs.titulo}</h4>
+                                                            <p className="text-[11px] text-slate-500 italic line-clamp-2">"{obs.descripcion}"</p>
+                                                            {obs.monto_observado != null && obs.monto_observado > 0 && (
+                                                                <span className={`inline-block mt-2 text-[9px] font-black px-2 py-0.5 rounded-full ${color.light} ${color.text} ${color.border} border`}>
+                                                                    {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(obs.monto_observado)}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex gap-2 ml-4 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
+                                                            <button onClick={() => startEdit(obs)} className="h-8 w-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xs"><i className="fas fa-edit"></i></button>
+                                                            <button onClick={() => setObsToDelete(obs.id!)} className="h-8 w-8 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center text-xs"><i className="fas fa-trash-alt"></i></button>
+                                                        </div>
+                                                    </div>
+                                                    {Array.isArray(obs.evidencias) && obs.evidencias.length > 0 && (
+                                                        <div className="flex gap-2 mt-3 flex-wrap">
+                                                            {obs.evidencias.map((ev, idx) => (
+                                                                <a key={idx} href={ev.url} target="_blank" rel="noopener noreferrer" className="flex items-center bg-slate-50 px-3 py-1 rounded-lg border border-slate-200 hover:bg-blue-600 hover:text-white transition-all text-[9px] font-bold text-slate-500">
+                                                                    <i className={`fas ${getFileIcon(ev.tipo)} mr-1.5`}></i>
+                                                                    <span className="truncate max-w-[100px]">{ev.nombre}</span>
+                                                                </a>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    <div className="mt-2 text-[9px] text-slate-300 font-bold uppercase">{obs.creado_por} · {obs.fecha_creacion ? new Date(obs.fecha_creacion).toLocaleDateString() : ''}</div>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
-                                )}
-                                <div className="pt-8 border-t border-slate-100 flex justify-between items-center text-[10px] text-slate-400 font-black uppercase">
-                                    <span>{obs.creado_por}</span>
-                                    <span>{obs.fecha_creacion ? new Date(obs.fecha_creacion).toLocaleDateString() : ''}</span>
-                                </div>
+                                ))}
                             </div>
                         );
                     })
