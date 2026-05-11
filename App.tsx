@@ -132,9 +132,11 @@ const AuthenticatedApp: React.FC = () => {
             }));
 
             setActivePopulation(population);
+            setValidationPopulationId(population.id);
         } catch (e) {
             console.error("💥 Excepción crítica en handlePopulationSelected:", e);
             setActivePopulation(population);
+            setValidationPopulationId(population.id);
         } finally {
             setView('dashboard');
         }
