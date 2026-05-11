@@ -135,8 +135,14 @@ export async function samplingProxyFetch(
     // Siempre usar URL relativa — el servidor Express en el VPS maneja /api/*
     const baseUrl = '';
 
-    // Incluir JWT del usuario autenticado en todas las requests
-    const { data: { session } } = await supabase.auth.getSession();
+    // Incluir JWT del usuario autenticado — con timeout para no bloquear en cold-start de Supabase
+    let session = null;
+    try {
+        session = await Promise.race([
+            supabase.auth.getSession().then(r => r.data.session),
+            new Promise<null>(resolve => setTimeout(() => resolve(null), 3000))
+        ]);
+    } catch { /* continuar sin auth header */ }
     const authHeader = session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {};
 
     if (requiresPost) {
