@@ -76,16 +76,16 @@ const MainDashboard: React.FC<MainDashboardProps> = ({ userName, onNavigate, onL
                 let popData = [];
                 let resultsData = [];
 
-                // ATTEMPT 1: PROXY (Preferred)
+                // ATTEMPT 1: PROXY (Preferred) — ambas consultas en paralelo
                 try {
-                    const popRes = await fetch('/api/sampling_proxy?action=get_populations');
+                    const [popRes, resultsRes] = await Promise.all([
+                        fetch('/api/sampling_proxy?action=get_populations'),
+                        fetch('/api/sampling_proxy?action=get_all_results')
+                    ]);
                     if (!popRes.ok) throw new Error(`Proxy Populations Failed (${popRes.status})`);
-                    const { populations } = await popRes.json();
-                    popData = populations || [];
-
-                    const resultsRes = await fetch('/api/sampling_proxy?action=get_all_results');
                     if (!resultsRes.ok) throw new Error(`Proxy Results Failed (${resultsRes.status})`);
-                    const { results } = await resultsRes.json();
+                    const [{ populations }, { results }] = await Promise.all([popRes.json(), resultsRes.json()]);
+                    popData = populations || [];
                     resultsData = results || [];
 
                 } catch (proxyError) {
