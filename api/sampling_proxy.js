@@ -1,21 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
+import { handlePreflight, setCors } from './_cors.js';
+import { requireAdmin } from './_auth.js';
 
-// v2.5.1 - Debug logs for samplingMethod condition
-// Last deploy: 2026-01-12 12:30 UTC - FORCE REBUILD
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
 export default async function handler(req, res) {
-    // CORS Headers
-    res.setHeader('Access-Control-Allow-Credentials', true);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
-    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
-
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
-    }
+    setCors(req, res);
+    if (handlePreflight(req, res)) return;
 
     const { action } = req.query;
 
@@ -27,7 +19,9 @@ export default async function handler(req, res) {
         if (req.method === 'GET') {
             // Actions independent of population_id
             if (action === 'get_users') {
-                // FALLBACK: Si no hay SERVICE_ROLE_KEY, devolver error informativo
+                const { error: adminErr } = await requireAdmin(req);
+                if (adminErr) return res.status(adminErr === 'Forbidden: Admin role required' ? 403 : 401).json({ error: adminErr });
+
                 if (!supabaseServiceKey) {
                     return res.status(503).json({
                         error: 'Service unavailable: SUPABASE_SERVICE_ROLE_KEY not configured',

@@ -1,4 +1,5 @@
 // Utilidades para fetch con timeout y manejo de errores
+import { supabase } from './supabaseClient';
 
 export interface FetchOptions extends RequestInit {
     timeout?: number;
@@ -131,26 +132,28 @@ export async function samplingProxyFetch(
     let url: string;
     let fetchOptions: FetchOptions;
 
-    // 🎯 FIX: En desarrollo, usar API local. En producción, usar Vercel.
-    // ANTES: Siempre usaba Vercel cuando hostname === 'localhost' ❌
-    // AHORA: Usa API local cuando hostname === 'localhost' ✅
-    const useDirectUrl = window.location.hostname !== 'localhost';
-    const baseUrl = useDirectUrl ? 'https://analisisinteligente.vercel.app' : '';
+    // Siempre usar URL relativa — el servidor Express en el VPS maneja /api/*
+    const baseUrl = '';
+
+    // Incluir JWT del usuario autenticado en todas las requests
+    const { data: { session } } = await supabase.auth.getSession();
+    const authHeader = session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {};
 
     if (requiresPost) {
         url = `${baseUrl}/api/sampling_proxy?action=${action}`;
         fetchOptions = {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeader },
             body: JSON.stringify(params),
-            timeout: 15000, // Timeout más corto para detectar problemas rápido
+            timeout: 15000,
             ...options
         };
     } else {
         const queryParams = new URLSearchParams(params).toString();
         url = `${baseUrl}/api/sampling_proxy?action=${action}&${queryParams}`;
         fetchOptions = {
-            timeout: 15000, // Timeout más corto
+            headers: { ...authHeader },
+            timeout: 15000,
             ...options
         };
     }
