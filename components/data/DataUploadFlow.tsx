@@ -51,6 +51,11 @@ const DataUploadFlow: React.FC<Props> = ({ onComplete, onCancel }) => {
                 const sheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[sheetName];
                 const jsonData = utils.sheet_to_json<DataRow>(worksheet, { defval: null });
+                if (!jsonData.length) {
+                    setError("El archivo está vacío o no contiene filas de datos (solo encabezado).");
+                    setStage('error');
+                    return;
+                }
                 const fileHeaders = Object.keys(jsonData[0]);
                 setHeaders(fileHeaders);
                 setData(jsonData);

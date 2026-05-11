@@ -55,11 +55,10 @@ const ValidationWorkspace: React.FC<Props> = ({ populationId, onValidationComple
 
                     if (popData) {
                         setPopulation(popData);
+                        success = true; // Population loaded — stop retrying regardless of rows
 
-                        // Si hay filas, procesamos
                         if (rowData && rowData.length > 0) {
                             processChartData(popData, rowData);
-                            success = true;
                         }
                     }
                 }

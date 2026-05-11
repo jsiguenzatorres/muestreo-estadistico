@@ -92,7 +92,12 @@ const DiscoveryModule: React.FC<Props> = (props) => {
 
                 setTests(analysis.suggestedTests);
                 // Pre-poblar el mapeo con lo que sugirió la IA
-                setMapping(function (prev) { return Object.assign({}, prev, analysis.suggestedMapping); });
+                setMapping(function (prev) {
+                    const patch = Object.fromEntries(
+                        Object.entries(analysis.suggestedMapping || {}).filter(([, v]) => v !== undefined && v !== null)
+                    );
+                    return { ...prev, ...patch };
+                });
 
                 setLoadingTask("Generando estrategia de auditoría...");
                 setTimeout(function () { setStage('diagnostic'); }, 1000);
