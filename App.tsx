@@ -1,4 +1,3 @@
-// AAMA v3.1 — build 20260511
 import React, { useState } from 'react';
 import { AppState, SamplingMethod, AuditPopulation, ColumnMapping, AuditResults, AppView } from './types';
 import Step4Results from './components/steps/Step4_Results';
@@ -87,7 +86,7 @@ const AuthenticatedApp: React.FC = () => {
 
     const handlePopulationSelected = async (population: AuditPopulation) => {
         try {
-            console.log("🔍 Cargando población:", population.id);
+            console.log("[AAMA v3.1] 🔍 Cargando población:", population.id);
             // Use Proxy for Fetching Results to Bypass Firewall
             const res = await fetch(`/api/get_audit_results?population_id=${population.id}`);
             let existingResults = null;
