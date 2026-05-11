@@ -1,0 +1,5 @@
+{
+  "name": "Asistente Avanzado de Muestreo de Auditoría (AAMA v4.1)",
+  "description": "Una aplicación interactiva para la selección, cálculo y generación de muestras de auditoría bajo métodos estadísticos y no estadísticos, garantizando la trazabilidad NIA 530 y la conformidad con el flujo de trabajo de Auditoría Interna.",
+  "requestFramePermissions": []
+}

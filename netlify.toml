@@ -1,0 +1,24 @@
+[build]
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# REGLA CRITICA: Proxy para burlar bloqueos CORS/Red
+[[redirects]]
+  from = "/supaproxy/*"
+  to = "https://lodeqleukaoshzarebxu.supabase.co/:splat"
+  status = 200
+  force = true
+  headers = {apikey = "YOUR_ANON_KEY_IF_NEEDED"} # Opcional, mejor enviarlo desde el cliente
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"

@@ -1,0 +1,30 @@
+{
+  "name": "asistente-avanzado-de-muestreo-de-auditoría-(aama-v4.1)",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.44.4",
+    "dotenv": "^17.2.3",
+    "google-auth-library": "^10.5.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "2.5.1",
+    "jspdf-autotable": "3.8.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^3.5.1",
+    "xlsx": "latest"
+  },
+  "devDependencies": {
+    "@netlify/functions": "^5.1.2",
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}
