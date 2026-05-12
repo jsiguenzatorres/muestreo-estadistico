@@ -138,11 +138,12 @@ export async function samplingProxyFetch(
     const baseUrl = '';
 
     // Incluir JWT del usuario autenticado
+    // Allow up to 8s for getSession — covers token-refresh scenarios on page reload
     let accessToken: string | null = null;
     try {
         const session = await Promise.race([
             supabase.auth.getSession().then(r => r.data.session),
-            new Promise<null>(resolve => setTimeout(() => resolve(null), 3000))
+            new Promise<null>(resolve => setTimeout(() => resolve(null), 8000))
         ]);
         accessToken = session?.access_token ?? null;
     } catch { /* continuar */ }
