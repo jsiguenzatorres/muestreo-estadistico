@@ -575,10 +575,12 @@ export default async function handler(req, res) {
                 // FIX 2026-05-12: eliminado filtro .not('unique_id_col','in',(...)).
                 // PostgREST procesa NOT IN con 25+ IDs en >20 s (URL larga, sin índice eficiente).
                 // En su lugar pedimos un lote generoso y filtramos en memoria con un Set.
-                const { population_id, existing_ids, amount } = JSON.parse(body);
+                // FIX: el codigo original usaba JSON.parse(body) con variable indefinida.
+                // Express body-parser ya entrega el JSON en req.body como hacen las demas acciones.
+                const { population_id, existing_ids, amount } = req.body || {};
 
-                if (!population_id || !existing_ids || !amount) {
-                    return res.status(400).json({ error: 'Missing required fields' });
+                if (!population_id || !Array.isArray(existing_ids) || !amount) {
+                    return res.status(400).json({ error: 'Missing required fields', got: { population_id: !!population_id, existing_ids: Array.isArray(existing_ids) ? existing_ids.length : typeof existing_ids, amount } });
                 }
 
                 const want = parseInt(amount) || 15;
