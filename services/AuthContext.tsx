@@ -28,75 +28,80 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
-    const [profile, setProfile] = useState<Profile | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [user, setUser]               = useState<User | null>(null);
+    const [profile, setProfile]         = useState<Profile | null>(null);
+    const [loading, setLoading]         = useState(true);
     const [isRecoveryMode, setIsRecoveryMode] = useState(false);
 
+    // ─── Fetch profile from DB ────────────────────────────────────────────────
+    const fetchProfile = async (userId: string) => {
+        try {
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', userId)
+                .single();
+            if (error) { console.error('❌ fetchProfile error:', error.message); return; }
+            if (data) setProfile(data);
+        } catch (err) {
+            console.error('💥 fetchProfile exception:', err);
+        }
+    };
+
+    // ─── signOut ──────────────────────────────────────────────────────────────
+    // Always redirect to '/' after signing out.
+    // A full page reload is the safest way to clear ALL state (React + Supabase JS
+    // localStorage cache) without race conditions.
+    const signOut = async () => {
+        try {
+            await supabase.auth.signOut();
+        } catch (err) {
+            console.error('💥 signOut exception:', err);
+        } finally {
+            window.location.href = '/';
+        }
+    };
+
+    // ─── Auth initialization — runs ONCE on mount ─────────────────────────────
+    // IMPORTANT: this effect has [] dependency so it never re-runs.
+    // Previously it had [user] which caused initAuth() to re-run on every user
+    // change, creating a race condition where signOut was immediately undone by
+    // initAuth() re-reading the stale localStorage token.
     useEffect(() => {
         let isMounted = true;
 
-        // Auto-logout timer
-        let inactivityTimer: NodeJS.Timeout;
-
-        const resetTimer = () => {
-            if (!user) return;
-            clearTimeout(inactivityTimer);
-            inactivityTimer = setTimeout(() => {
-                console.log("⏱️ Sesión expirada por inactividad. Cerrando sesión...");
-                signOut();
-            }, 10 * 60 * 1000); // 10 minutos
-        };
-
-        const setupActivityListeners = () => {
-            window.addEventListener('mousemove', resetTimer);
-            window.addEventListener('keypress', resetTimer);
-            window.addEventListener('click', resetTimer);
-            window.addEventListener('scroll', resetTimer);
-        };
-
-        const removeActivityListeners = () => {
-            window.removeEventListener('mousemove', resetTimer);
-            window.removeEventListener('keypress', resetTimer);
-            window.removeEventListener('click', resetTimer);
-            window.removeEventListener('scroll', resetTimer);
-        };
-
         const initAuth = async () => {
             try {
-                // Fast path: read cached Supabase session from localStorage synchronously
-                // so the UI unblocks immediately for returning users without waiting for the network
-                const cachedKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+                // Fast path: read cached session from localStorage synchronously.
+                // Unblocks the UI immediately for returning users without a network call.
+                const cachedKey = Object.keys(localStorage).find(
+                    k => k.startsWith('sb-') && k.endsWith('-auth-token')
+                );
                 if (cachedKey) {
                     try {
                         const cached = JSON.parse(localStorage.getItem(cachedKey) || '{}');
                         if (cached?.user && cached?.expires_at && cached.expires_at * 1000 > Date.now()) {
                             if (isMounted) {
                                 setUser(cached.user);
-                                // Build provisional profile from user_metadata so role-gated
-                                // UI (e.g. Admin menu) appears instantly without waiting for DB
                                 if (cached.user.user_metadata) {
                                     setProfile({
-                                        id: cached.user.id,
-                                        full_name: cached.user.user_metadata.full_name || '',
-                                        role: cached.user.user_metadata.role || 'Auditor',
+                                        id:         cached.user.id,
+                                        full_name:  cached.user.user_metadata.full_name  || '',
+                                        role:       cached.user.user_metadata.role       || 'Auditor',
                                         avatar_url: cached.user.user_metadata.avatar_url || '',
-                                        is_active: true,
+                                        is_active:  true,
                                     });
                                 }
-                                setLoading(false); // unblock UI immediately
+                                setLoading(false);
                             }
                             fetchProfile(cached.user.id).catch(console.warn);
                         }
-                    } catch { /* ignore parse errors */ }
+                    } catch { /* ignore JSON parse errors */ }
                 }
 
-                // Reduced to 8s — if Supabase doesn't respond (cold start), don't block the app
+                // Confirm with Supabase (allows token refresh); 8s timeout for cold starts
                 const timeoutFlag = setTimeout(() => {
-                    if (isMounted) {
-                        console.warn("⚠️ Auth initialization timeout after 8s. Proceeding.");
-                        setLoading(false);
-                    }
+                    if (isMounted) setLoading(false);
                 }, 8000);
 
                 const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -107,15 +112,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 if (session) {
                     if (isMounted) setUser(session.user);
                     await fetchProfile(session.user.id);
-                    setupActivityListeners();
-                    resetTimer();
                 } else if (isMounted) {
-                    // No session — clear any stale cached user
+                    // Supabase confirmed: no session — clear any stale cached user
                     setUser(null);
                     setProfile(null);
                 }
             } catch (err) {
-                console.error("💥 Error during auth initialization:", err);
+                console.error('💥 Auth initialization error:', err);
             } finally {
                 if (isMounted) setLoading(false);
             }
@@ -123,10 +126,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         initAuth();
 
+        // Subscribe to Supabase auth events (token refresh, sign in/out, password recovery)
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            console.log("🔔 Auth State Change:", event);
+            console.log('🔔 Auth event:', event);
 
-            // Password recovery flow — user arrived via reset link in email
             if (event === 'PASSWORD_RECOVERY') {
                 if (isMounted) {
                     setIsRecoveryMode(true);
@@ -137,87 +140,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             if (session) {
-                const sessionUser = session.user;
+                const u = session.user;
                 if (isMounted) {
-                    setUser(sessionUser);
-                    // Sincronización inmediata con metadatos para evitar retrasos de RLS
-                    if (sessionUser.user_metadata) {
+                    setUser(u);
+                    if (u.user_metadata) {
                         setProfile(prev => ({
                             ...prev,
-                            id: sessionUser.id,
-                            full_name: sessionUser.user_metadata.full_name || prev?.full_name || '',
-                            role: sessionUser.user_metadata.role || prev?.role || 'Auditor',
-                            is_active: true // Si tiene sesión activa y metadata, asumimos activo temporalmente
+                            id:        u.id,
+                            full_name: u.user_metadata.full_name || prev?.full_name || '',
+                            role:      u.user_metadata.role      || prev?.role      || 'Auditor',
+                            is_active: true,
                         } as Profile));
                     }
-                    setupActivityListeners();
-                    resetTimer();
                 }
-                await fetchProfile(sessionUser.id);
+                await fetchProfile(u.id);
             } else {
+                // SIGNED_OUT or session expired
                 if (isMounted) {
                     setUser(null);
                     setProfile(null);
-                    removeActivityListeners();
-                    clearTimeout(inactivityTimer);
                 }
             }
+
             if (isMounted) setLoading(false);
         });
 
         return () => {
             isMounted = false;
             subscription.unsubscribe();
-            removeActivityListeners();
+        };
+    }, []); // ← empty deps: runs only once on mount
+
+    // ─── Inactivity auto-logout — separate effect, depends on user ────────────
+    // Kept separate so it re-configures the timer when user changes without
+    // re-running the auth initialization above.
+    useEffect(() => {
+        if (!user) return;
+
+        let inactivityTimer: ReturnType<typeof setTimeout>;
+
+        const resetTimer = () => {
+            clearTimeout(inactivityTimer);
+            inactivityTimer = setTimeout(() => {
+                console.log('⏱️ Sesión expirada por inactividad. Cerrando sesión...');
+                signOut();
+            }, 10 * 60 * 1000); // 10 minutes
+        };
+
+        const events = ['mousemove', 'keypress', 'click', 'scroll'] as const;
+        events.forEach(e => window.addEventListener(e, resetTimer));
+        resetTimer();
+
+        return () => {
+            events.forEach(e => window.removeEventListener(e, resetTimer));
             clearTimeout(inactivityTimer);
         };
-    }, [user]); // Dependencia user para el resetTimer
-
-    const fetchProfile = async (userId: string) => {
-        try {
-            console.log("🔄 Cargando perfil para:", userId);
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', userId)
-                .single();
-
-            if (error) {
-                console.error("❌ Error al cargar perfil:", error.message);
-                // Si el error es que no existe, el trigger podría estar demorándose
-                return;
-            }
-
-            if (data) {
-                console.log("✅ Perfil cargado:", data.role);
-                setProfile(data);
-            }
-        } catch (err) {
-            console.error("💥 Excepción en fetchProfile:", err);
-        }
-    };
-
-    const signOut = async () => {
-        try {
-            console.log("🚪 Iniciando cierre de sesión técnico...");
-            // Limpieza inmediata del estado local para respuesta instantánea en UI
-            setUser(null);
-            setProfile(null);
-
-            const { error } = await supabase.auth.signOut();
-            if (error) {
-                console.error("⚠️ Error en signOut de Supabase:", error.message);
-                // Forzamos recarga si el signOut falla para asegurar limpieza de cookies/sesión
-                window.location.href = '/';
-            }
-        } catch (err) {
-            console.error("💥 Excepción en signOut:", err);
-            window.location.href = '/';
-        }
-    };
+    }, [user]); // re-runs when user changes (login/logout)
 
     const mustChangePassword = !!(user?.user_metadata?.must_change_password);
-    const clearRecoveryMode = () => setIsRecoveryMode(false);
+    const clearRecoveryMode  = () => setIsRecoveryMode(false);
 
     return (
         <AuthContext.Provider value={{ user, profile, loading, isRecoveryMode, mustChangePassword, signOut, clearRecoveryMode }}>
