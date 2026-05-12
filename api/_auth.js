@@ -4,10 +4,11 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl    = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Singleton admin client — created once at module load, reused across all requests
-// Avoids the overhead of createClient() on every request
+// Singleton admin client — service role, no session management needed
 const adminClient = (supabaseUrl && supabaseServiceKey)
-    ? createClient(supabaseUrl, supabaseServiceKey)
+    ? createClient(supabaseUrl, supabaseServiceKey, {
+        auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false }
+    })
     : null;
 
 /**

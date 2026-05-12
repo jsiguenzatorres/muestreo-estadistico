@@ -137,29 +137,32 @@ export async function samplingProxyFetch(
     // Siempre usar URL relativa — el servidor Express en el VPS maneja /api/*
     const baseUrl = '';
 
-    // Incluir JWT del usuario autenticado
-    // Allow up to 8s for getSession — covers token-refresh scenarios on page reload
+    // Incluir JWT del usuario autenticado.
+    // FAST PATH: leer de localStorage directamente (síncrono, sin red).
+    // El cliente Supabase JS escribe aquí en cada cambio de sesión, así que siempre está al día.
+    // Evitamos getSession() como primera opción porque puede bloquear hasta 8s cuando el cliente
+    // está refresnado el token, congelando toda la UI.
     let accessToken: string | null = null;
     try {
-        const session = await Promise.race([
-            supabase.auth.getSession().then(r => r.data.session),
-            new Promise<null>(resolve => setTimeout(() => resolve(null), 8000))
-        ]);
-        accessToken = session?.access_token ?? null;
-    } catch { /* continuar */ }
+        const cachedKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+        if (cachedKey) {
+            const cached = JSON.parse(localStorage.getItem(cachedKey) || '{}');
+            if (cached?.access_token && cached?.expires_at && cached.expires_at * 1000 > Date.now()) {
+                accessToken = cached.access_token;
+            }
+        }
+    } catch { /* ignorar errores de parse */ }
 
-    // Fallback: si el cliente Supabase aún no inicializó su caché interna,
-    // leer el token directamente de localStorage (misma fuente que usa el fast-path de AuthContext)
+    // Fallback: si localStorage no tiene token válido, intentar getSession() con timeout corto.
+    // Esto cubre el caso de primer load donde localStorage aún no tiene datos.
     if (!accessToken) {
         try {
-            const cachedKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
-            if (cachedKey) {
-                const cached = JSON.parse(localStorage.getItem(cachedKey) || '{}');
-                if (cached?.access_token && cached?.expires_at && cached.expires_at * 1000 > Date.now()) {
-                    accessToken = cached.access_token;
-                }
-            }
-        } catch { /* ignorar errores de parse */ }
+            const session = await Promise.race([
+                supabase.auth.getSession().then(r => r.data.session),
+                new Promise<null>(resolve => setTimeout(() => resolve(null), 2000))
+            ]);
+            accessToken = session?.access_token ?? null;
+        } catch { /* continuar sin token */ }
     }
 
     const authHeader = accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {};

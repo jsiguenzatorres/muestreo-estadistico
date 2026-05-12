@@ -6,10 +6,13 @@ import { sendWelcomeEmail } from './send_email.js';
 const supabaseUrl        = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
-// Singleton Supabase client — created once at module load, reused across all requests.
-// Avoids createClient() overhead (~50-200ms) on every API call.
+// Singleton Supabase client — service role, no session management.
+// autoRefreshToken:false is CRITICAL: without it the client starts background timers
+// that conflict with concurrent requests and cause unpredictable blocking.
 const supabase = (supabaseUrl && supabaseServiceKey)
-    ? createClient(supabaseUrl, supabaseServiceKey)
+    ? createClient(supabaseUrl, supabaseServiceKey, {
+        auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false }
+    })
     : null;
 
 export default async function handler(req, res) {
@@ -39,21 +42,7 @@ export default async function handler(req, res) {
                 return res.status(200).json({ users: profiles });
 
             } else if (action === 'get_populations') {
-                // FALLBACK: Si no hay SERVICE_ROLE_KEY, usar conexión anon con RLS
-                let supabaseClient;
-
-                if (supabaseServiceKey) {
-                    // Usar service role si está disponible
-                    supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
-                } else {
-                    // Fallback: usar anon key (requiere RLS configurado)
-                    const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
-                    if (!anonKey) throw new Error('No Supabase keys available');
-                    supabaseClient = createClient(supabaseUrl, anonKey);
-                    console.warn('Using anon key fallback for get_populations');
-                }
-
-                const { data, error } = await supabaseClient
+                const { data, error } = await supabase
                     .from('audit_populations')
                     .select('*')
                     .order('created_at', { ascending: false });
