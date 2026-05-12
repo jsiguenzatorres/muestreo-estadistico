@@ -69,6 +69,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         if (cached?.user && cached?.expires_at && cached.expires_at * 1000 > Date.now()) {
                             if (isMounted) {
                                 setUser(cached.user);
+                                // Build provisional profile from user_metadata so role-gated
+                                // UI (e.g. Admin menu) appears instantly without waiting for DB
+                                if (cached.user.user_metadata) {
+                                    setProfile({
+                                        id: cached.user.id,
+                                        full_name: cached.user.user_metadata.full_name || '',
+                                        role: cached.user.user_metadata.role || 'Auditor',
+                                        avatar_url: cached.user.user_metadata.avatar_url || '',
+                                        is_active: true,
+                                    });
+                                }
                                 setLoading(false); // unblock UI immediately
                             }
                             fetchProfile(cached.user.id).catch(console.warn);
