@@ -170,7 +170,8 @@ const MonetaryResultsView: React.FC<Props> = ({ appState, setAppState, role, onB
                 })
             });
             if (!res.ok) throw new Error(`Expand failed: HTTP ${res.status}`);
-            const { rows: moreRows } = await res.json();
+            const { rows: moreRows, diagnostics } = await res.json();
+            console.log('[expand_sample] diagnostics:', diagnostics);
 
             if (moreRows && moreRows.length > 0) {
                 const mapping = appState.selectedPopulation?.column_mapping;
@@ -204,7 +205,14 @@ const MonetaryResultsView: React.FC<Props> = ({ appState, setAppState, role, onB
                 setAppState(prev => ({ ...prev, results: updatedResults }));
                 setSaveFeedback({ show: true, title: "Ampliación", message: `Se agregaron ${newItems.length} registros correctamente.`, type: 'success' });
             } else {
-                setSaveFeedback({ show: true, title: "Aviso", message: "No se encontraron más registros disponibles.", type: 'error' });
+                // Diagnóstico exacto: probablemente la población tiene pocos IDs únicos
+                // (mapeo erróneo de la columna identificadora durante la carga).
+                const uniq = diagnostics?.unique_ids_in_population;
+                const taken = diagnostics?.already_sampled;
+                const detailedMsg = (uniq != null && taken != null)
+                    ? `La población solo tiene ${uniq} identificadores únicos y ya hay ${taken} en la muestra. Revise el mapeo de la columna "ID único" en la carga del archivo — puede haber valores duplicados.`
+                    : 'No se encontraron más registros disponibles.';
+                setSaveFeedback({ show: true, title: "Ampliación no posible", message: detailedMsg, type: 'error' });
             }
         } catch (e) {
             console.error("Error expandiendo muestra:", e);

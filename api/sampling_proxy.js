@@ -572,38 +572,65 @@ export default async function handler(req, res) {
 
             } else if (action === 'expand_sample') {
                 // SERVER-SIDE SAMPLE EXPANSION (Prevent Browser Freeze)
-                // FIX 2026-05-12: eliminado filtro .not('unique_id_col','in',(...)).
-                // PostgREST procesa NOT IN con 25+ IDs en >20 s (URL larga, sin índice eficiente).
-                // En su lugar pedimos un lote generoso y filtramos en memoria con un Set.
-                // FIX: el codigo original usaba JSON.parse(body) con variable indefinida.
-                // Express body-parser ya entrega el JSON en req.body como hacen las demas acciones.
+                // Causa raíz detectada 2026-05-12: en algunas poblaciones, audit_data_rows
+                // tiene unique_id_col duplicado masivamente (p. ej. 703 filas pero solo 35
+                // IDs distintos por mal mapeo en la carga del archivo).  Por eso un simple
+                // .limit(N) + filtro por Set devolvía 0 resultados: las N filas con mayor
+                // risk_score eran TODAS duplicados de los IDs ya muestreados.
+                //
+                // Fix: traer un lote amplio (cap 10 000), deduplicar por unique_id_col en
+                // memoria respetando el orden de risk_score, y filtrar contra existing_ids.
                 const { population_id, existing_ids, amount } = req.body || {};
 
                 if (!population_id || !Array.isArray(existing_ids) || !amount) {
-                    return res.status(400).json({ error: 'Missing required fields', got: { population_id: !!population_id, existing_ids: Array.isArray(existing_ids) ? existing_ids.length : typeof existing_ids, amount } });
+                    return res.status(400).json({
+                        error: 'Missing required fields',
+                        got: { population_id: !!population_id, existing_ids: Array.isArray(existing_ids) ? existing_ids.length : typeof existing_ids, amount }
+                    });
                 }
 
                 const want = parseInt(amount) || 15;
-                // queryLimit = filas pedidas + tamaño de la muestra existente + margen.
-                // Garantiza suficientes filas restantes después de filtrar duplicados.
-                const queryLimit = want + existing_ids.length + 20;
+
+                // Cap defensivo: la mayoría de poblaciones cabe en 10 000 filas.
+                // Si una población supera ese tamaño, devolveremos lo encontrado en el lote.
+                const FETCH_CAP = 10000;
 
                 const { data, error } = await supabase
                     .from('audit_data_rows')
                     .select('unique_id_col, monetary_value_col, risk_score, risk_factors, raw_json')
                     .eq('population_id', population_id)
-                    .order('risk_score', { ascending: false })
-                    .limit(queryLimit);
+                    .order('risk_score', { ascending: false, nullsFirst: false })
+                    .limit(FETCH_CAP);
 
                 if (error) throw error;
 
-                const excludedSet = new Set((existing_ids || []).map(String));
-                const filtered = (data || [])
-                    .filter(r => !excludedSet.has(String(r.unique_id_col)))
-                    .slice(0, want);
+                const rows = data || [];
+                const excludedSet = new Set(existing_ids.map(String));
+                const seenIds     = new Set();
+                const filtered    = [];
 
-                console.log(`[expand_sample] population=${population_id} pedidos=${want} excluidos=${existing_ids.length} → entregados=${filtered.length}`);
-                return res.status(200).json({ rows: filtered });
+                for (const row of rows) {
+                    const id = String(row.unique_id_col);
+                    if (excludedSet.has(id) || seenIds.has(id)) continue;
+                    seenIds.add(id);
+                    filtered.push(row);
+                    if (filtered.length >= want) break;
+                }
+
+                // Diagnóstico: cuántos IDs únicos totales (vistos) había realmente
+                const uniqueIdsScanned = new Set(rows.map(r => String(r.unique_id_col))).size;
+                console.log(`[expand_sample] population=${population_id} pedidos=${want} excluidos=${existing_ids.length} filas_escaneadas=${rows.length} ids_únicos=${uniqueIdsScanned} → entregados=${filtered.length}`);
+
+                return res.status(200).json({
+                    rows: filtered,
+                    diagnostics: {
+                        requested: want,
+                        delivered: filtered.length,
+                        rows_scanned: rows.length,
+                        unique_ids_in_population: uniqueIdsScanned,
+                        already_sampled: existing_ids.length
+                    }
+                });
 
             } else {
                 return res.status(400).json({ error: 'Invalid POST action' });
