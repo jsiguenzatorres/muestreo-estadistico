@@ -155,25 +155,33 @@ const AttributeResultsView: React.FC<Props> = ({ appState, setAppState, role, on
             // Obtener los registros que aún no están en la muestra
             const excludedIds = currentResults.sample.map(i => i.id);
 
-            // ─── Query con timeout de 20 s ────────────────────────────────────────
-            // Promise.race es compatible con todas las versiones del cliente Supabase JS
-            // (abortSignal no está disponible en v2.44.x).
+            // ─── Query sin filtro NOT IN ──────────────────────────────────────────
+            // El filtro .not('col','in','(...)') con 25+ IDs genera URLs largas que
+            // PostgREST procesa muy lento (timeout).  Solución: traer un lote generoso
+            // sin filtro y descartar del lado del cliente las filas ya muestreadas.
+            // queryLimit = filas_necesarias + tamaño_piloto + margen garantiza que,
+            // aunque todas las filas del piloto caigan al inicio de la tabla, siempre
+            // queden suficientes filas nuevas después de filtrar.
+            const queryLimit = needed + currentResults.sampleSize + 10;
+
             const supabaseQuery = supabase
                 .from('audit_data_rows')
                 .select('unique_id_col, monetary_value_col, raw_json')
                 .eq('population_id', appState.selectedPopulation!.id)
-                .not('unique_id_col', 'in', `(${excludedIds.map(id => `"${id}"`).join(',')})`)
-                .limit(needed);
+                .limit(queryLimit);
 
             const timeoutRace = new Promise<never>((_, reject) =>
                 setTimeout(() => reject(new Error('Query timeout: tardó más de 20 segundos')), 20000)
             );
 
             const result: any = await Promise.race([supabaseQuery, timeoutRace]);
-            const moreRows: any[] | null = result.data;
-            const queryError: any = result.error;
+            if (result.error) throw result.error;
 
-            if (queryError) throw queryError;
+            // Filtro client-side: excluir las filas que ya están en la muestra piloto
+            const excludedSet = new Set(excludedIds.map(String));
+            const moreRows: any[] = (result.data || [])
+                .filter((row: any) => !excludedSet.has(String(row.unique_id_col)))
+                .slice(0, needed);
 
             if (moreRows && moreRows.length > 0) {
                 const newItems: AuditSampleItem[] = moreRows.map((row, i) => ({
