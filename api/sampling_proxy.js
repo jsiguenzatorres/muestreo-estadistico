@@ -406,6 +406,33 @@ export default async function handler(req, res) {
                 if (error) throw error;
                 return res.status(200).json({ success: true });
 
+            } else if (action === 'create_user') {
+                const { error: adminErr } = await requireAdmin(req);
+                if (adminErr) return res.status(adminErr === 'Forbidden: Admin role required' ? 403 : 401).json({ error: adminErr });
+
+                const { full_name, email, password, role } = req.body;
+                if (!full_name || !email || !password || !role) return res.status(400).json({ error: 'Missing required fields' });
+
+                // Create user via admin API — email pre-confirmed, temp password, force change flag
+                const { data: { user: newUser }, error: createErr } = await supabase.auth.admin.createUser({
+                    email,
+                    password,
+                    email_confirm: true,
+                    user_metadata: { full_name, role, must_change_password: true }
+                });
+                if (createErr) throw createErr;
+
+                // Upsert profile so it's immediately visible and active (admin-created users don't need approval)
+                await supabase.from('profiles').upsert({
+                    id: newUser.id,
+                    full_name,
+                    role,
+                    is_active: true,
+                    registration_date: new Date().toISOString()
+                }, { onConflict: 'id' });
+
+                return res.status(200).json({ success: true, user_id: newUser.id });
+
             } else if (action === 'toggle_user_status') {
                 const { user_id, status } = req.body;
                 if (!user_id || typeof status === 'undefined') return res.status(400).json({ error: 'Missing args' });

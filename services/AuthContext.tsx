@@ -19,7 +19,10 @@ interface AuthContextType {
     user: User | null;
     profile: Profile | null;
     loading: boolean;
+    isRecoveryMode: boolean;
+    mustChangePassword: boolean;
     signOut: () => Promise<void>;
+    clearRecoveryMode: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -28,6 +31,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [user, setUser] = useState<User | null>(null);
     const [profile, setProfile] = useState<Profile | null>(null);
     const [loading, setLoading] = useState(true);
+    const [isRecoveryMode, setIsRecoveryMode] = useState(false);
 
     useEffect(() => {
         let isMounted = true;
@@ -121,6 +125,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             console.log("🔔 Auth State Change:", event);
+
+            // Password recovery flow — user arrived via reset link in email
+            if (event === 'PASSWORD_RECOVERY') {
+                if (isMounted) {
+                    setIsRecoveryMode(true);
+                    if (session) setUser(session.user);
+                    setLoading(false);
+                }
+                return;
+            }
+
             if (session) {
                 const sessionUser = session.user;
                 if (isMounted) {
@@ -201,8 +216,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     };
 
+    const mustChangePassword = !!(user?.user_metadata?.must_change_password);
+    const clearRecoveryMode = () => setIsRecoveryMode(false);
+
     return (
-        <AuthContext.Provider value={{ user, profile, loading, signOut }}>
+        <AuthContext.Provider value={{ user, profile, loading, isRecoveryMode, mustChangePassword, signOut, clearRecoveryMode }}>
             {children}
         </AuthContext.Provider>
     );

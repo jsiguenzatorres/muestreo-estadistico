@@ -18,10 +18,12 @@ import MainDashboard from './components/dashboard/MainDashboard';
 import AuditExpedienteView from './components/results/AuditExpedienteView';
 import { AuthProvider, useAuth } from './services/AuthContext';
 import LoginView from './components/auth/LoginView';
+import ResetPasswordView from './components/auth/ResetPasswordView';
+import ForcePasswordChangeView from './components/auth/ForcePasswordChangeView';
 import AdminUserManagementView from './components/admin/AdminUserManagementView';
 
 const AuthenticatedApp: React.FC = () => {
-    const { user, profile, loading, signOut } = useAuth();
+    const { user, profile, loading, isRecoveryMode, mustChangePassword, signOut } = useAuth();
     const { addToast } = useToast();
     const [view, setView] = useState<AppView>('main_dashboard');
     const [activePopulation, setActivePopulation] = useState<AuditPopulation | null>(null);
@@ -55,8 +57,18 @@ const AuthenticatedApp: React.FC = () => {
         );
     }
 
+    // User arrived via "Forgot password" email link
+    if (isRecoveryMode) {
+        return <ResetPasswordView />;
+    }
+
     if (!user) {
         return <LoginView />;
+    }
+
+    // Admin created this user with a temporary password — force change before entering
+    if (mustChangePassword) {
+        return <ForcePasswordChangeView />;
     }
 
     if (profile && !profile.is_active) {

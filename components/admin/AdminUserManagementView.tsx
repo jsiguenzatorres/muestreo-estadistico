@@ -2,6 +2,146 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../services/supabaseClient';
 import { samplingProxyFetch, FetchTimeoutError, FetchNetworkError } from '../../services/fetchUtils';
 
+/* ─── Create User Modal ─── */
+const CreateUserModal: React.FC<{ onClose: () => void; onCreated: () => void }> = ({ onClose, onCreated }) => {
+    const [fullName, setFullName] = useState('');
+    const [email, setEmail]       = useState('');
+    const [role, setRole]         = useState<'Auditor' | 'Supervisor'>('Auditor');
+    const [password, setPassword] = useState('');
+    const [showPw, setShowPw]     = useState(false);
+    const [loading, setLoading]   = useState(false);
+    const [error, setError]       = useState<string | null>(null);
+
+    // Auto-generate a temp password
+    const genPassword = () => {
+        const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#$!';
+        let pw = '';
+        for (let i = 0; i < 12; i++) pw += chars[Math.floor(Math.random() * chars.length)];
+        setPassword(pw);
+        setShowPw(true);
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!fullName || !email || !password) { setError('Completa todos los campos.'); return; }
+        setLoading(true); setError(null);
+        try {
+            await samplingProxyFetch('create_user', { full_name: fullName, email, password, role }, { method: 'POST' });
+            onCreated();
+        } catch (err: any) {
+            setError(err.message || 'Error al crear el usuario.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+            <div className="bg-slate-900 border border-slate-700/60 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up"
+                onClick={e => e.stopPropagation()}>
+
+                {/* Header */}
+                <div className="flex items-center justify-between px-7 py-5 border-b border-slate-800">
+                    <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 bg-blue-600/20 border border-blue-500/30 rounded-xl flex items-center justify-center">
+                            <i className="fas fa-user-plus text-blue-400 text-sm"></i>
+                        </div>
+                        <div>
+                            <h3 className="text-white font-black text-sm">Crear Nuevo Usuario</h3>
+                            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">El usuario recibirá acceso inmediato</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
+                        <i className="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="p-7 space-y-4">
+                    {/* Full name */}
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Nombre completo</label>
+                        <div className="relative">
+                            <i className="fas fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+                            <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} required
+                                placeholder="Ej: María González" className="field-dark w-full pl-11" />
+                        </div>
+                    </div>
+
+                    {/* Email */}
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Correo electrónico</label>
+                        <div className="relative">
+                            <i className="fas fa-envelope absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+                            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
+                                placeholder="correo@empresa.com" className="field-dark w-full pl-11" />
+                        </div>
+                    </div>
+
+                    {/* Role */}
+                    <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Rol asignado</label>
+                        <div className="grid grid-cols-3 gap-2">
+                            {(['Auditor', 'Supervisor', 'Admin'] as const).map(r => (
+                                <button key={r} type="button" onClick={() => setRole(r as any)}
+                                    className={`py-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${(role as string) === r ? 'bg-blue-600/20 border-blue-500/50 text-blue-300' : 'bg-slate-800/50 border-slate-700/50 text-slate-500 hover:border-slate-600'}`}>
+                                    {r}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Temp password */}
+                    <div>
+                        <div className="flex justify-between items-center mb-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Contraseña temporal</label>
+                            <button type="button" onClick={genPassword}
+                                className="text-[10px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest transition-colors">
+                                <i className="fas fa-dice mr-1"></i>Generar
+                            </button>
+                        </div>
+                        <div className="relative">
+                            <i className="fas fa-key absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
+                            <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} required
+                                placeholder="Contraseña que el usuario deberá cambiar" className="field-dark w-full pl-11 pr-11" />
+                            <button type="button" onClick={() => setShowPw(p => !p)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1 transition-colors">
+                                <i className={`fas ${showPw ? 'fa-eye-slash' : 'fa-eye'} text-sm`}></i>
+                            </button>
+                        </div>
+                        <p className="text-[10px] text-slate-600 font-bold mt-1.5">
+                            <i className="fas fa-info-circle mr-1"></i>
+                            El usuario deberá cambiar esta contraseña en su primer inicio de sesión.
+                        </p>
+                    </div>
+
+                    {error && (
+                        <div className="flex gap-3 items-start bg-rose-500/10 border border-rose-500/25 rounded-xl p-3.5 text-rose-300 text-xs font-medium">
+                            <i className="fas fa-circle-exclamation mt-0.5 shrink-0"></i><span>{error}</span>
+                        </div>
+                    )}
+
+                    <div className="flex gap-3 pt-1">
+                        <button type="button" onClick={onClose}
+                            className="flex-1 py-3.5 bg-slate-800 border border-slate-700/50 text-slate-400 hover:text-white hover:border-slate-600 rounded-xl font-black text-xs uppercase tracking-widest transition-all">
+                            Cancelar
+                        </button>
+                        <button type="submit" disabled={loading}
+                            className="flex-1 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black rounded-xl text-xs uppercase tracking-widest shadow-lg shadow-blue-500/25 hover:brightness-110 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                            {loading ? <><i className="fas fa-circle-notch fa-spin"></i>Creando...</> : <><i className="fas fa-user-check"></i>Crear usuario</>}
+                        </button>
+                    </div>
+                </form>
+
+                <style>{`
+                    .field-dark { background: rgba(30,41,59,.6); border: 1px solid rgba(71,85,105,.6); border-radius: 0.75rem; padding: 0.875rem 1rem; font-size: 0.875rem; font-weight: 500; color: white; outline: none; transition: all .2s; }
+                    .field-dark::placeholder { color: #475569; }
+                    .field-dark:focus { border-color: rgba(59,130,246,.7); box-shadow: 0 0 0 2px rgba(59,130,246,.15); }
+                `}</style>
+            </div>
+        </div>
+    );
+};
+
 interface UserProfile {
     id: string;
     full_name: string;
@@ -18,6 +158,7 @@ const AdminUserManagementView: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const [showCreateModal, setShowCreateModal] = useState(false);
 
     useEffect(() => {
         let isMounted = true;
@@ -102,7 +243,24 @@ const AdminUserManagementView: React.FC = () => {
                         <h2 className="text-2xl font-black text-slate-800 tracking-tight">Consola de Administración</h2>
                         <p className="text-slate-500 text-sm font-medium mt-1 uppercase tracking-widest text-[10px]">Gestión de Accesos y Seguridad</p>
                     </div>
+                    <button
+                        onClick={() => setShowCreateModal(true)}
+                        className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black text-xs uppercase tracking-widest rounded-xl shadow-lg shadow-blue-500/25 hover:brightness-110 hover:-translate-y-0.5 transition-all"
+                    >
+                        <i className="fas fa-user-plus"></i>
+                        Crear Usuario
+                    </button>
                 </div>
+
+                {showCreateModal && (
+                    <CreateUserModal
+                        onClose={() => setShowCreateModal(false)}
+                        onCreated={() => {
+                            setShowCreateModal(false);
+                            fetchUsers();
+                        }}
+                    />
+                )}
 
                 {/* PANEL DE DIAGNÓSTICO MEJORADO */}
                 {(loading || error || users.length === 0) && (
