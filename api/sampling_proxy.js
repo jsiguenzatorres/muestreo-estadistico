@@ -22,16 +22,15 @@ export default async function handler(req, res) {
                 const { error: adminErr } = await requireAdmin(req);
                 if (adminErr) return res.status(adminErr === 'Forbidden: Admin role required' ? 403 : 401).json({ error: adminErr });
 
-                if (!supabaseServiceKey) {
-                    return res.status(503).json({
-                        error: 'Service unavailable: SUPABASE_SERVICE_ROLE_KEY not configured',
-                        message: 'Admin functions require service role key'
-                    });
-                }
-
-                const { data: { users }, error } = await supabase.auth.admin.listUsers();
+                // Query profiles table directly — contains all fields the frontend needs
+                // (full_name, role, is_active, registration_date, etc.) and avoids
+                // the auth.admin.listUsers() response format mismatch
+                const { data: profiles, error } = await supabase
+                    .from('profiles')
+                    .select('id, full_name, role, is_active, registration_date, registration_location, device_info, browser_info')
+                    .order('registration_date', { ascending: false });
                 if (error) throw error;
-                return res.status(200).json({ users });
+                return res.status(200).json({ users: profiles });
 
             } else if (action === 'get_populations') {
                 // FALLBACK: Si no hay SERVICE_ROLE_KEY, usar conexión anon con RLS

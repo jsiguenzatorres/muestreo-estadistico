@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
 
-// Returns { user, error } — use anon client so we don't bypass RLS for token validation
+// Returns { user, error } — validates JWT via Supabase Auth API with 8s timeout
 export async function getAuthUser(req) {
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -13,9 +13,22 @@ export async function getAuthUser(req) {
     if (!supabaseUrl || !supabaseAnonKey) return { user: null, error: 'Server auth not configured' };
 
     const client = createClient(supabaseUrl, supabaseAnonKey);
-    const { data, error } = await client.auth.getUser(token);
-    if (error || !data?.user) return { user: null, error: error?.message || 'Invalid token' };
-    return { user: data.user, error: null };
+
+    // 8s timeout — prevents hanging when Supabase is cold-starting
+    const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Auth check timed out')), 8000)
+    );
+
+    try {
+        const { data, error } = await Promise.race([
+            client.auth.getUser(token),
+            timeout
+        ]);
+        if (error || !data?.user) return { user: null, error: error?.message || 'Invalid token' };
+        return { user: data.user, error: null };
+    } catch (err) {
+        return { user: null, error: err.message || 'Auth check failed' };
+    }
 }
 
 // Returns { user, error } — additionally checks profiles.role = 'Admin'
