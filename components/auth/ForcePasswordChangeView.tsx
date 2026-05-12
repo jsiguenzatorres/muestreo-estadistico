@@ -20,7 +20,7 @@ function pwStrength(pwd: string) {
  * Requires them to set a personal password before accessing the app.
  */
 const ForcePasswordChangeView: React.FC = () => {
-    const { profile, signOut } = useAuth();
+    const { user, profile, signOut } = useAuth();
     const [password, setPassword] = useState('');
     const [confirm, setConfirm]   = useState('');
     const [showPw, setShowPw]     = useState(false);
@@ -82,7 +82,24 @@ const ForcePasswordChangeView: React.FC = () => {
                             </p>
                         </div>
 
-                        <form onSubmit={handleSubmit} className="space-y-4">
+                        {/* Show logged-in email as read-only context (not an input) */}
+                        {user?.email && (
+                            <div className="flex items-center gap-2.5 bg-slate-800/50 border border-slate-700/40 rounded-xl px-4 py-3 mb-4">
+                                <i className="fas fa-user-circle text-slate-500 text-sm shrink-0"></i>
+                                <span className="text-slate-400 text-xs font-medium truncate">{user.email}</span>
+                                <span className="ml-auto text-[9px] font-black text-slate-600 uppercase tracking-widest shrink-0">Sesión activa</span>
+                            </div>
+                        )}
+
+                        <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
+                            {/*
+                              Hidden username field — tells browsers/password-managers this is a
+                              "change password" form (not a login form), suppressing credential autofill.
+                              RFC: https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#autofill
+                            */}
+                            <input type="text" autoComplete="username" readOnly tabIndex={-1}
+                                value={user?.email || ''} style={{ display: 'none' }} aria-hidden="true" />
+
                             {/* New password */}
                             <div>
                                 <div className="flex justify-between mb-2">
@@ -92,6 +109,7 @@ const ForcePasswordChangeView: React.FC = () => {
                                 <div className="relative">
                                     <i className="fas fa-key absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
                                     <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} required
+                                        autoComplete="new-password"
                                         placeholder="Mínimo 8 caracteres"
                                         className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl py-3.5 pl-11 pr-11 text-sm font-medium text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/70 focus:ring-2 focus:ring-blue-500/15 transition-all" />
                                     <button type="button" onClick={() => setShowPw(p => !p)}
@@ -114,6 +132,7 @@ const ForcePasswordChangeView: React.FC = () => {
                                 <div className="relative">
                                     <i className="fas fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm pointer-events-none"></i>
                                     <input type={showPw ? 'text' : 'password'} value={confirm} onChange={e => setConfirm(e.target.value)} required
+                                        autoComplete="new-password"
                                         placeholder="••••••••"
                                         className={`w-full bg-slate-800/60 border rounded-xl py-3.5 pl-11 pr-10 text-sm font-medium text-white placeholder-slate-600 focus:outline-none focus:ring-2 transition-all ${confirm && confirm !== password ? 'border-rose-500/50 focus:ring-rose-500/15' : confirm && confirm === password ? 'border-emerald-500/50 focus:ring-emerald-500/15' : 'border-slate-700/60 focus:border-blue-500/70 focus:ring-blue-500/15'}`} />
                                     {confirm && <i className={`fas absolute right-4 top-1/2 -translate-y-1/2 text-sm ${confirm === password ? 'fa-check-circle text-emerald-400' : 'fa-times-circle text-rose-400'}`}></i>}

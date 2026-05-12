@@ -3,8 +3,14 @@ import { handlePreflight, setCors } from './_cors.js';
 import { requireAdmin } from './_auth.js';
 import { sendWelcomeEmail } from './send_email.js';
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseUrl        = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+
+// Singleton Supabase client — created once at module load, reused across all requests.
+// Avoids createClient() overhead (~50-200ms) on every API call.
+const supabase = (supabaseUrl && supabaseServiceKey)
+    ? createClient(supabaseUrl, supabaseServiceKey)
+    : null;
 
 export default async function handler(req, res) {
     setCors(req, res);
@@ -13,8 +19,7 @@ export default async function handler(req, res) {
     const { action } = req.query;
 
     try {
-        if (!supabaseUrl || !supabaseServiceKey) throw new Error('Missing Supabase Config');
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        if (!supabase) throw new Error('Missing Supabase Config');
 
         // --- GET Actions ---
         if (req.method === 'GET') {
@@ -475,14 +480,14 @@ export default async function handler(req, res) {
                 const { user_id } = req.body;
                 if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
 
-                // Try to delete from auth.users — may fail if user was never fully created (test/incomplete data)
-                const { error: deleteErr } = await supabase.auth.admin.deleteUser(user_id);
-                if (deleteErr) {
-                    console.warn(`[delete_user] auth.admin.deleteUser failed (${deleteErr.status}): ${deleteErr.message} — cleaning profiles only`);
-                }
-
-                // Always clean profiles row regardless of auth delete result
-                await supabase.from('profiles').delete().eq('id', user_id);
+                // Parallel delete: auth.users + profiles — both run simultaneously
+                await Promise.all([
+                    supabase.auth.admin.deleteUser(user_id)
+                        .then(({ error: e }) => {
+                            if (e) console.warn(`[delete_user] auth delete skipped: ${e.message}`);
+                        }),
+                    supabase.from('profiles').delete().eq('id', user_id),
+                ]);
 
                 return res.status(200).json({ success: true });
 
