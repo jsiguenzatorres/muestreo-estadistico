@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { AppState, AuditResults, AuditSampleItem, UserRole } from '../../types';
 import { calculateInference } from '../../services/statisticalService';
 import { supabase } from '../../services/supabaseClient';
@@ -25,6 +25,8 @@ const AttributeResultsView: React.FC<Props> = ({ appState, setAppState, role, on
     const [isSaving, setIsSaving] = useState(false);
     const [saveFeedback, setSaveFeedback] = useState<{ show: boolean; title: string; message: string; type: 'success' | 'error' }>({ show: false, title: '', message: '', type: 'success' });
     const [helpKey, setHelpKey] = useState<string | null>(null);
+    // Ref guard — prevents concurrent / duplicate handleExpandSample calls
+    const isExpandingRef = useRef(false);
 
     const params = appState.samplingParams.attribute;
     const inference = useMemo(() => calculateInference(currentResults, appState.samplingMethod, 0), [currentResults]);
@@ -34,13 +36,20 @@ const AttributeResultsView: React.FC<Props> = ({ appState, setAppState, role, on
     const criticalNumber = inference.criticalNumber ?? 0;
     const isControlEffective = errorsFound <= criticalNumber;
 
-    // Lógica para ampliación secuencial Stop-or-Go
-    const canExpand = params.useSequential && errorsFound > 0 && currentResults.sampleSize < 100;
-
     // Determine R Factor for display
     let rFactorDisplay = 2.3;
     if (params.NC >= 99) rFactorDisplay = 4.6;
     else if (params.NC >= 95) rFactorDisplay = 3.0;
+
+    // Tamaño teórico completo Stop-or-Go — same formula used inside handleExpandSample.
+    // Computed once at component scope so canExpand and handleExpandSample share it.
+    // Math.max(0.01, …) avoids division by zero when ET ≈ PE.
+    const n_theoretical = Math.ceil((rFactorDisplay * 100) / Math.max(0.01, params.ET - params.PE));
+
+    // Lógica para ampliación secuencial Stop-or-Go.
+    // FIX: usar n_theoretical en lugar de < 100 para que el botón desaparezca en cuanto
+    // alcanzamos el tamaño completo, sin importar si ese tamaño es mayor o menor que 100.
+    const canExpand = params.useSequential && errorsFound > 0 && currentResults.sampleSize < n_theoretical;
 
 
 
@@ -131,30 +140,43 @@ const AttributeResultsView: React.FC<Props> = ({ appState, setAppState, role, on
     };
 
     const handleExpandSample = async () => {
+        // ─── Guard: evita llamadas concurrentes / doble-clic ─────────────────────
+        if (isExpandingRef.current) return;
+        isExpandingRef.current = true;
         setIsExpanding(true);
-        try {
-            // 1. Calcular el Tamaño Teórico Completo (n) usando la fórmula validada
-            const n_theoretical = Math.ceil((rFactorDisplay * 100) / (params.ET - params.PE));
 
-            // 2. Determinar cuántos faltan
+        try {
+            // n_theoretical ya está calculado en el scope del componente
             const needed = n_theoretical - currentResults.sampleSize;
 
-            if (needed <= 0) {
-                setIsExpanding(false);
-                return;
-            }
+            // Nada que hacer — el botón no debería estar visible, pero por si acaso
+            if (needed <= 0) return;
 
-            // 3. Obtener los registros faltantes
+            // Obtener los registros que aún no están en la muestra
             const excludedIds = currentResults.sample.map(i => i.id);
 
-            const { data: moreRows, error } = await supabase
-                .from('audit_data_rows')
-                .select('unique_id_col, monetary_value_col, raw_json')
-                .eq('population_id', appState.selectedPopulation!.id)
-                .not('unique_id_col', 'in', `(${excludedIds.map(id => `"${id}"`).join(',')})`)
-                .limit(needed);
+            // ─── Timeout de 20 s sobre la query directa de Supabase ───────────────
+            // Sin timeout la query puede colgar indefinidamente si la conexión se pierde.
+            const abortController = new AbortController();
+            const queryTimeout = setTimeout(() => abortController.abort(), 20000);
 
-            if (error) throw error;
+            let moreRows: any[] | null = null;
+            let queryError: any = null;
+            try {
+                const result = await supabase
+                    .from('audit_data_rows')
+                    .select('unique_id_col, monetary_value_col, raw_json')
+                    .eq('population_id', appState.selectedPopulation!.id)
+                    .not('unique_id_col', 'in', `(${excludedIds.map(id => `"${id}"`).join(',')})`)
+                    .limit(needed)
+                    .abortSignal(abortController.signal);
+                moreRows = result.data;
+                queryError = result.error;
+            } finally {
+                clearTimeout(queryTimeout);
+            }
+
+            if (queryError) throw queryError;
 
             if (moreRows && moreRows.length > 0) {
                 const newItems: AuditSampleItem[] = moreRows.map((row, i) => ({
@@ -181,10 +203,12 @@ const AttributeResultsView: React.FC<Props> = ({ appState, setAppState, role, on
                 setAppState(prev => ({ ...prev, results: updatedResults }));
                 await saveToDb(updatedResults, false);
             }
-        } catch (e) {
-            console.error("Error expanding sample:", e);
+        } catch (e: any) {
+            const isAbort = e?.name === 'AbortError' || e?.message?.includes('aborted');
+            console.error(isAbort ? '⏱️ Ampliar muestra: query abortada por timeout' : 'Error expanding sample:', e);
         } finally {
             setIsExpanding(false);
+            isExpandingRef.current = false;
         }
     };
 

@@ -626,7 +626,8 @@ const SamplingWorkspace: React.FC<Props> = ({ appState, setAppState, currentMeth
             </div>
 
             {/* CONTROL DE SUB-PESTAÑAS */}
-            <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden mb-10">
+            {/* overflow-hidden removido: clippeaba los dropdowns absolutos de CustomGradientDropdown */}
+            <div className="bg-white rounded-3xl shadow-xl border border-slate-100 mb-10">
                 <div className="flex bg-slate-100/50 p-2 border-b border-slate-100">
                     <button
                         onClick={() => setActiveTab('config')}
