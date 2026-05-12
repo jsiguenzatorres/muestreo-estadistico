@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { handlePreflight, setCors } from './_cors.js';
 import { requireAdmin } from './_auth.js';
+import { sendWelcomeEmail } from './send_email.js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
@@ -407,7 +408,7 @@ export default async function handler(req, res) {
                 return res.status(200).json({ success: true });
 
             } else if (action === 'create_user') {
-                const { error: adminErr } = await requireAdmin(req);
+                const { user: adminUser, error: adminErr } = await requireAdmin(req);
                 if (adminErr) return res.status(adminErr === 'Forbidden: Admin role required' ? 403 : 401).json({ error: adminErr });
 
                 const { full_name, email, password, role } = req.body;
@@ -431,6 +432,20 @@ export default async function handler(req, res) {
                     registration_date: new Date().toISOString()
                 }, { onConflict: 'id' });
 
+                // Send welcome email with temp credentials (non-blocking)
+                try {
+                    const { data: adminProfile } = await supabase.from('profiles').select('full_name').eq('id', adminUser.id).single();
+                    await sendWelcomeEmail({
+                        to: email,
+                        fullName: full_name,
+                        role,
+                        password,
+                        createdBy: adminProfile?.full_name || 'El administrador',
+                    });
+                } catch (emailErr) {
+                    console.warn('[create_user] Welcome email failed (non-critical):', emailErr.message);
+                }
+
                 return res.status(200).json({ success: true, user_id: newUser.id });
 
             } else if (action === 'delete_user') {
@@ -440,11 +455,13 @@ export default async function handler(req, res) {
                 const { user_id } = req.body;
                 if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
 
-                // Delete from auth.users — cascades to profiles via FK or trigger
+                // Try to delete from auth.users — may fail if user was never fully created (test/incomplete data)
                 const { error: deleteErr } = await supabase.auth.admin.deleteUser(user_id);
-                if (deleteErr) throw deleteErr;
+                if (deleteErr) {
+                    console.warn(`[delete_user] auth.admin.deleteUser failed (${deleteErr.status}): ${deleteErr.message} — cleaning profiles only`);
+                }
 
-                // Explicit cleanup of profiles row in case there's no cascade
+                // Always clean profiles row regardless of auth delete result
                 await supabase.from('profiles').delete().eq('id', user_id);
 
                 return res.status(200).json({ success: true });
