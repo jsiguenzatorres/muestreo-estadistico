@@ -117,6 +117,8 @@ export async function samplingProxyFetch(
         'delete_population',        // Eliminar población
 
         // Operaciones de usuario (user operations)
+        'create_user',              // Crear usuario (admin) — POST con payload JSON
+        'delete_user',              // Eliminar usuario (admin)
         'toggle_user_status',       // Cambiar estado de usuario
 
         // Operaciones de observaciones (observation operations)
@@ -161,13 +163,17 @@ export async function samplingProxyFetch(
 
     const authHeader = accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {};
 
+    // Admin operations that involve multiple sequential Supabase calls (auth + DB + email) need a longer timeout
+    const ADMIN_ACTIONS = ['create_user', 'delete_user', 'toggle_user_status', 'get_users'];
+    const defaultTimeout = ADMIN_ACTIONS.includes(action) ? 45000 : 15000;
+
     if (requiresPost) {
         url = `${baseUrl}/api/sampling_proxy?action=${action}`;
         fetchOptions = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeader },
             body: JSON.stringify(params),
-            timeout: 15000,
+            timeout: defaultTimeout,
             ...options
         };
     } else {
@@ -175,7 +181,7 @@ export async function samplingProxyFetch(
         url = `${baseUrl}/api/sampling_proxy?action=${action}&${queryParams}`;
         fetchOptions = {
             headers: { ...authHeader },
-            timeout: 15000,
+            timeout: defaultTimeout,
             ...options
         };
     }

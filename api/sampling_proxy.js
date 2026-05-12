@@ -411,40 +411,60 @@ export default async function handler(req, res) {
                 const { user: adminUser, error: adminErr } = await requireAdmin(req);
                 if (adminErr) return res.status(adminErr === 'Forbidden: Admin role required' ? 403 : 401).json({ error: adminErr });
 
-                const { full_name, email, password, role } = req.body;
-                if (!full_name || !email || !password || !role) return res.status(400).json({ error: 'Missing required fields' });
+                const { full_name, email, password, role } = req.body || {};
+                console.log('[create_user] fields present:', { full_name: !!full_name, email: !!email, password: !!password, role: !!role });
+                if (!full_name || !email || !password || !role) {
+                    console.error('[create_user] Missing fields — body was:', JSON.stringify(req.body));
+                    return res.status(400).json({ error: 'Missing required fields: full_name, email, password, role' });
+                }
 
                 // Create user via admin API — email pre-confirmed, temp password, force change flag
-                const { data: { user: newUser }, error: createErr } = await supabase.auth.admin.createUser({
+                // NOTE: Destructure data and error separately to avoid crash when data is null on error
+                const createResult = await supabase.auth.admin.createUser({
                     email,
                     password,
                     email_confirm: true,
                     user_metadata: { full_name, role, must_change_password: true }
                 });
-                if (createErr) throw createErr;
+                const createErr = createResult.error;
+                const newUser   = createResult.data?.user;
+
+                if (createErr || !newUser) {
+                    const msg = createErr?.message || 'Failed to create user (no user returned)';
+                    console.error('[create_user] supabase.auth.admin.createUser failed:', msg);
+                    // Map Supabase 422 (duplicate) → HTTP 409 Conflict for a clearer frontend message
+                    const status = createErr?.status === 422 ? 409 : 500;
+                    return res.status(status).json({ error: msg });
+                }
 
                 // Upsert profile so it's immediately visible and active (admin-created users don't need approval)
-                await supabase.from('profiles').upsert({
+                const { error: upsertErr } = await supabase.from('profiles').upsert({
                     id: newUser.id,
                     full_name,
                     role,
                     is_active: true,
                     registration_date: new Date().toISOString()
                 }, { onConflict: 'id' });
+                if (upsertErr) console.warn('[create_user] Profile upsert warning:', upsertErr.message);
 
-                // Send welcome email with temp credentials (non-blocking)
-                try {
-                    const { data: adminProfile } = await supabase.from('profiles').select('full_name').eq('id', adminUser.id).single();
-                    await sendWelcomeEmail({
-                        to: email,
-                        fullName: full_name,
-                        role,
-                        password,
-                        createdBy: adminProfile?.full_name || 'El administrador',
-                    });
-                } catch (emailErr) {
-                    console.warn('[create_user] Welcome email failed (non-critical):', emailErr.message);
-                }
+                // Send welcome email FIRE-AND-FORGET — does NOT block the HTTP response
+                // We capture adminUser.id before the async scope to avoid closure issues
+                const adminId = adminUser.id;
+                setImmediate(async () => {
+                    try {
+                        const { data: adminProfile } = await supabase.from('profiles').select('full_name').eq('id', adminId).single();
+                        await sendWelcomeEmail({
+                            to: email,
+                            fullName: full_name,
+                            role,
+                            password,
+                            createdBy: adminProfile?.full_name || 'El administrador',
+                        });
+                        console.log(`[create_user] Welcome email sent to ${email}`);
+                    } catch (emailErr) {
+                        console.warn('[create_user] Welcome email failed (non-critical):', emailErr.message);
+                    }
+                });
 
                 return res.status(200).json({ success: true, user_id: newUser.id });
 
