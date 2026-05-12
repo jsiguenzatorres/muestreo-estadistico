@@ -159,6 +159,7 @@ const AdminUserManagementView: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
     useEffect(() => {
         let isMounted = true;
@@ -204,6 +205,19 @@ const AdminUserManagementView: React.FC = () => {
         return () => { isMounted = false; };
     }, []);
 
+    const deleteUser = async (userId: string) => {
+        setActionLoading(userId);
+        try {
+            await samplingProxyFetch('delete_user', { user_id: userId }, { method: 'POST' });
+            setUsers(prev => prev.filter(u => u.id !== userId));
+            setDeleteConfirm(null);
+        } catch (err: any) {
+            alert('Error al eliminar usuario: ' + (err.message || 'Error desconocido'));
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
     const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
         try {
             setActionLoading(userId);
@@ -236,6 +250,7 @@ const AdminUserManagementView: React.FC = () => {
     };
 
     return (
+        <>
         <div className="p-8 animate-fade-in">
             <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
                 <div className="p-10 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
@@ -344,13 +359,26 @@ const AdminUserManagementView: React.FC = () => {
                                         </span>
                                     </td>
                                     <td className="px-8 py-6 text-right">
-                                        <button
-                                            onClick={() => toggleUserStatus(u.id, u.is_active)}
-                                            disabled={actionLoading === u.id || u.role === 'Admin'}
-                                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${u.is_active ? 'text-rose-500 hover:bg-rose-50' : 'bg-blue-600 text-white shadow-lg shadow-blue-500/20 hover:bg-blue-700'} disabled:opacity-30`}
-                                        >
-                                            {actionLoading === u.id ? '...' : (u.is_active ? 'Suspender' : 'Autorizar')}
-                                        </button>
+                                        <div className="flex items-center justify-end gap-2">
+                                            {/* Eliminar — solo para pendientes (nunca autorizados) y no-Admin */}
+                                            {!u.is_active && u.role !== 'Admin' && (
+                                                <button
+                                                    onClick={() => setDeleteConfirm({ id: u.id, name: u.full_name })}
+                                                    disabled={actionLoading === u.id}
+                                                    title="Eliminar usuario"
+                                                    className="px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all bg-rose-50 text-rose-500 border border-rose-100 hover:bg-rose-600 hover:text-white hover:border-rose-600 disabled:opacity-30"
+                                                >
+                                                    <i className="fas fa-trash-alt"></i>
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => toggleUserStatus(u.id, u.is_active)}
+                                                disabled={actionLoading === u.id || u.role === 'Admin'}
+                                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${u.is_active ? 'text-rose-500 hover:bg-rose-50' : 'bg-blue-600 text-white shadow-lg shadow-blue-500/20 hover:bg-blue-700'} disabled:opacity-30`}
+                                            >
+                                                {actionLoading === u.id ? '...' : (u.is_active ? 'Suspender' : 'Autorizar')}
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -393,6 +421,44 @@ const AdminUserManagementView: React.FC = () => {
                 )}
             </div>
         </div>
+
+        {/* Modal de confirmación de eliminación */}
+        {deleteConfirm && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+                onClick={() => setDeleteConfirm(null)}>
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center animate-fade-in-up"
+                    onClick={e => e.stopPropagation()}>
+                    <div className="w-16 h-16 bg-rose-100 rounded-2xl flex items-center justify-center mx-auto mb-5">
+                        <i className="fas fa-user-slash text-2xl text-rose-500"></i>
+                    </div>
+                    <h3 className="text-lg font-black text-slate-800 mb-2">¿Eliminar usuario?</h3>
+                    <p className="text-slate-500 text-sm mb-1">
+                        Se eliminará permanentemente la cuenta de:
+                    </p>
+                    <p className="font-black text-slate-800 mb-5 bg-slate-50 rounded-xl py-2 px-4 text-sm border border-slate-100">
+                        {deleteConfirm.name}
+                    </p>
+                    <p className="text-[11px] text-rose-500 font-bold bg-rose-50 rounded-xl px-4 py-2 mb-6 border border-rose-100">
+                        Esta acción no se puede deshacer
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                        <button onClick={() => setDeleteConfirm(null)}
+                            className="py-3 bg-slate-100 text-slate-600 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all">
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={() => deleteUser(deleteConfirm.id)}
+                            disabled={actionLoading === deleteConfirm.id}
+                            className="py-3 bg-rose-600 text-white rounded-xl font-black text-xs uppercase tracking-widest hover:bg-rose-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                            {actionLoading === deleteConfirm.id
+                                ? <><i className="fas fa-circle-notch fa-spin"></i>Eliminando...</>
+                                : <><i className="fas fa-trash-alt"></i>Eliminar</>}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+        </>
     );
 };
 

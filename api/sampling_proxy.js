@@ -433,6 +433,22 @@ export default async function handler(req, res) {
 
                 return res.status(200).json({ success: true, user_id: newUser.id });
 
+            } else if (action === 'delete_user') {
+                const { error: adminErr } = await requireAdmin(req);
+                if (adminErr) return res.status(adminErr === 'Forbidden: Admin role required' ? 403 : 401).json({ error: adminErr });
+
+                const { user_id } = req.body;
+                if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
+
+                // Delete from auth.users — cascades to profiles via FK or trigger
+                const { error: deleteErr } = await supabase.auth.admin.deleteUser(user_id);
+                if (deleteErr) throw deleteErr;
+
+                // Explicit cleanup of profiles row in case there's no cascade
+                await supabase.from('profiles').delete().eq('id', user_id);
+
+                return res.status(200).json({ success: true });
+
             } else if (action === 'toggle_user_status') {
                 const { user_id, status } = req.body;
                 if (!user_id || typeof status === 'undefined') return res.status(400).json({ error: 'Missing args' });
