@@ -155,26 +155,23 @@ const AttributeResultsView: React.FC<Props> = ({ appState, setAppState, role, on
             // Obtener los registros que aún no están en la muestra
             const excludedIds = currentResults.sample.map(i => i.id);
 
-            // ─── Timeout de 20 s sobre la query directa de Supabase ───────────────
-            // Sin timeout la query puede colgar indefinidamente si la conexión se pierde.
-            const abortController = new AbortController();
-            const queryTimeout = setTimeout(() => abortController.abort(), 20000);
+            // ─── Query con timeout de 20 s ────────────────────────────────────────
+            // Promise.race es compatible con todas las versiones del cliente Supabase JS
+            // (abortSignal no está disponible en v2.44.x).
+            const supabaseQuery = supabase
+                .from('audit_data_rows')
+                .select('unique_id_col, monetary_value_col, raw_json')
+                .eq('population_id', appState.selectedPopulation!.id)
+                .not('unique_id_col', 'in', `(${excludedIds.map(id => `"${id}"`).join(',')})`)
+                .limit(needed);
 
-            let moreRows: any[] | null = null;
-            let queryError: any = null;
-            try {
-                const result = await supabase
-                    .from('audit_data_rows')
-                    .select('unique_id_col, monetary_value_col, raw_json')
-                    .eq('population_id', appState.selectedPopulation!.id)
-                    .not('unique_id_col', 'in', `(${excludedIds.map(id => `"${id}"`).join(',')})`)
-                    .limit(needed)
-                    .abortSignal(abortController.signal);
-                moreRows = result.data;
-                queryError = result.error;
-            } finally {
-                clearTimeout(queryTimeout);
-            }
+            const timeoutRace = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Query timeout: tardó más de 20 segundos')), 20000)
+            );
+
+            const result: any = await Promise.race([supabaseQuery, timeoutRace]);
+            const moreRows: any[] | null = result.data;
+            const queryError: any = result.error;
 
             if (queryError) throw queryError;
 

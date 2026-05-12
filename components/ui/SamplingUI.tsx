@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import InfoHelper from './InfoHelper';
 import { ASSISTANT_CONTENT } from '../../constants';
 
@@ -86,9 +87,17 @@ export const PremiumVariableCard: React.FC<PremiumVariableCardProps> = ({
     );
 };
 
+// ─── CustomGradientDropdown ────────────────────────────────────────────────────
+// El menú se renderiza via ReactDOM.createPortal directamente en document.body
+// para escapar de cualquier contexto de apilamiento (stacking context) o
+// overflow:hidden que exista en los ancestros del componente.
+// La posición se calcula con getBoundingClientRect() y se usa position:fixed,
+// lo que garantiza que el menú siempre aparece sobre todos los demás elementos.
 export const CustomGradientDropdown: React.FC<CustomDropdownProps> = ({ value, options, onChange, colorTheme }) => {
     const [isOpen, setIsOpen] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const menuRef   = useRef<HTMLDivElement>(null);
+    const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
 
     const themes = {
         blue: {
@@ -131,26 +140,90 @@ export const CustomGradientDropdown: React.FC<CustomDropdownProps> = ({ value, o
     const currentTheme = themes[colorTheme] || themes.blue;
     const selectedOption = options.find(opt => opt.value === value);
 
+    // Recalcula la posición del menú a partir del botón
+    const syncPosition = () => {
+        if (!buttonRef.current) return;
+        const r = buttonRef.current.getBoundingClientRect();
+        setMenuStyle({
+            position: 'fixed',
+            top:   r.bottom + 4,
+            left:  r.left,
+            width: r.width,
+            zIndex: 9999,
+        });
+    };
+
+    // Cierra al hacer clic fuera del botón o del menú
     useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        if (!isOpen) return;
+        const onDown = (e: MouseEvent) => {
+            const t = e.target as Node;
+            if (!buttonRef.current?.contains(t) && !menuRef.current?.contains(t)) {
                 setIsOpen(false);
             }
         };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [isOpen]);
+
+    // Mantiene la posición sincronizada mientras el menú está abierto
+    useEffect(() => {
+        if (!isOpen) return;
+        syncPosition();
+        window.addEventListener('scroll', syncPosition, true);
+        window.addEventListener('resize', syncPosition);
+        return () => {
+            window.removeEventListener('scroll', syncPosition, true);
+            window.removeEventListener('resize', syncPosition);
+        };
+    }, [isOpen]);
+
+    const handleToggle = () => {
+        if (!isOpen) syncPosition();
+        setIsOpen(prev => !prev);
+    };
 
     const handleSelect = (val: number) => {
         onChange(val);
         setIsOpen(false);
     };
 
+    // Menú renderizado en document.body → no hay overflow ni z-index que lo clippe
+    const menu = isOpen ? ReactDOM.createPortal(
+        <div
+            ref={menuRef}
+            style={menuStyle}
+            className="bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden animate-fade-in-up max-h-64 overflow-y-auto custom-scrollbar"
+        >
+            {options.map((option) => (
+                <div
+                    key={option.value}
+                    onClick={() => handleSelect(option.value)}
+                    className={`px-4 py-3 cursor-pointer flex justify-between items-center transition-colors border-b border-gray-50 last:border-0 hover:bg-gray-50 ${option.value === value ? currentTheme.activeItem : 'text-gray-700'}`}
+                >
+                    <div className="flex flex-col">
+                        <span className="font-bold text-sm">{option.label}</span>
+                        {option.annotation && (
+                            <span className={`text-[10px] uppercase font-bold mt-0.5 ${option.value === value ? 'opacity-80' : 'text-gray-400'}`}>
+                                {option.annotation}
+                            </span>
+                        )}
+                    </div>
+                    {option.value === value && (
+                        <i className={`fas fa-check ${currentTheme.check}`}></i>
+                    )}
+                </div>
+            ))}
+        </div>,
+        document.body
+    ) : null;
+
     return (
-        <div className="relative w-full" ref={dropdownRef}>
+        <div className="relative w-full">
             <button
+                ref={buttonRef}
                 type="button"
-                onClick={() => setIsOpen(!isOpen)}
+                onClick={handleToggle}
                 className={`w-full px-4 py-3 rounded-lg shadow-md flex items-center justify-between transition-all duration-200 transform active:scale-[0.98] focus:outline-none focus:ring-4 ${currentTheme.ring} ${currentTheme.button}`}
             >
                 <div className="flex flex-col items-start text-left">
@@ -161,30 +234,7 @@ export const CustomGradientDropdown: React.FC<CustomDropdownProps> = ({ value, o
                 </div>
                 <i className={`fas fa-chevron-down transition-transform duration-300 ${isOpen ? 'rotate-180' : ''} ${currentTheme.icon}`}></i>
             </button>
-
-            {isOpen && (
-                <div className="absolute z-50 w-full mt-2 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden animate-fade-in-up max-h-64 overflow-y-auto custom-scrollbar">
-                    {options.map((option) => (
-                        <div
-                            key={option.value}
-                            onClick={() => handleSelect(option.value)}
-                            className={`px-4 py-3 cursor-pointer flex justify-between items-center transition-colors border-b border-gray-50 last:border-0 hover:bg-gray-50 ${option.value === value ? currentTheme.activeItem : 'text-gray-700'}`}
-                        >
-                            <div className="flex flex-col">
-                                <span className="font-bold text-sm">{option.label}</span>
-                                {option.annotation && (
-                                    <span className={`text-[10px] uppercase font-bold mt-0.5 ${option.value === value ? 'opacity-80' : 'text-gray-400'}`}>
-                                        {option.annotation}
-                                    </span>
-                                )}
-                            </div>
-                            {option.value === value && (
-                                <i className={`fas fa-check ${currentTheme.check}`}></i>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            )}
+            {menu}
         </div>
     );
 };
