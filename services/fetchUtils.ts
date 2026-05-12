@@ -135,15 +135,31 @@ export async function samplingProxyFetch(
     // Siempre usar URL relativa — el servidor Express en el VPS maneja /api/*
     const baseUrl = '';
 
-    // Incluir JWT del usuario autenticado — con timeout para no bloquear en cold-start de Supabase
-    let session = null;
+    // Incluir JWT del usuario autenticado
+    let accessToken: string | null = null;
     try {
-        session = await Promise.race([
+        const session = await Promise.race([
             supabase.auth.getSession().then(r => r.data.session),
             new Promise<null>(resolve => setTimeout(() => resolve(null), 3000))
         ]);
-    } catch { /* continuar sin auth header */ }
-    const authHeader = session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {};
+        accessToken = session?.access_token ?? null;
+    } catch { /* continuar */ }
+
+    // Fallback: si el cliente Supabase aún no inicializó su caché interna,
+    // leer el token directamente de localStorage (misma fuente que usa el fast-path de AuthContext)
+    if (!accessToken) {
+        try {
+            const cachedKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+            if (cachedKey) {
+                const cached = JSON.parse(localStorage.getItem(cachedKey) || '{}');
+                if (cached?.access_token && cached?.expires_at && cached.expires_at * 1000 > Date.now()) {
+                    accessToken = cached.access_token;
+                }
+            }
+        } catch { /* ignorar errores de parse */ }
+    }
+
+    const authHeader = accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {};
 
     if (requiresPost) {
         url = `${baseUrl}/api/sampling_proxy?action=${action}`;
