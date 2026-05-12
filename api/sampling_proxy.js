@@ -572,23 +572,36 @@ export default async function handler(req, res) {
 
             } else if (action === 'expand_sample') {
                 // SERVER-SIDE SAMPLE EXPANSION (Prevent Browser Freeze)
+                // FIX 2026-05-12: eliminado filtro .not('unique_id_col','in',(...)).
+                // PostgREST procesa NOT IN con 25+ IDs en >20 s (URL larga, sin índice eficiente).
+                // En su lugar pedimos un lote generoso y filtramos en memoria con un Set.
                 const { population_id, existing_ids, amount } = JSON.parse(body);
 
                 if (!population_id || !existing_ids || !amount) {
                     return res.status(400).json({ error: 'Missing required fields' });
                 }
 
-                // Query for additional rows NOT in existing sample, ordered by risk_score descending
+                const want = parseInt(amount) || 15;
+                // queryLimit = filas pedidas + tamaño de la muestra existente + margen.
+                // Garantiza suficientes filas restantes después de filtrar duplicados.
+                const queryLimit = want + existing_ids.length + 20;
+
                 const { data, error } = await supabase
                     .from('audit_data_rows')
                     .select('unique_id_col, monetary_value_col, risk_score, risk_factors, raw_json')
                     .eq('population_id', population_id)
-                    .not('unique_id_col', 'in', `(${existing_ids.map(id => `"${id}"`).join(',')})`)
                     .order('risk_score', { ascending: false })
-                    .limit(parseInt(amount) || 15);
+                    .limit(queryLimit);
 
                 if (error) throw error;
-                return res.status(200).json({ rows: data });
+
+                const excludedSet = new Set((existing_ids || []).map(String));
+                const filtered = (data || [])
+                    .filter(r => !excludedSet.has(String(r.unique_id_col)))
+                    .slice(0, want);
+
+                console.log(`[expand_sample] population=${population_id} pedidos=${want} excluidos=${existing_ids.length} → entregados=${filtered.length}`);
+                return res.status(200).json({ rows: filtered });
 
             } else {
                 return res.status(400).json({ error: 'Invalid POST action' });

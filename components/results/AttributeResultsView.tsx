@@ -153,35 +153,24 @@ const AttributeResultsView: React.FC<Props> = ({ appState, setAppState, role, on
             if (needed <= 0) return;
 
             // Obtener los registros que aún no están en la muestra
-            const excludedIds = currentResults.sample.map(i => i.id);
+            const existingIds = currentResults.sample.map(i => i.id);
 
-            // ─── Query sin filtro NOT IN ──────────────────────────────────────────
-            // El filtro .not('col','in','(...)') con 25+ IDs genera URLs largas que
-            // PostgREST procesa muy lento (timeout).  Solución: traer un lote generoso
-            // sin filtro y descartar del lado del cliente las filas ya muestreadas.
-            // queryLimit = filas_necesarias + tamaño_piloto + margen garantiza que,
-            // aunque todas las filas del piloto caigan al inicio de la tabla, siempre
-            // queden suficientes filas nuevas después de filtrar.
-            const queryLimit = needed + currentResults.sampleSize + 10;
-
-            const supabaseQuery = supabase
-                .from('audit_data_rows')
-                .select('unique_id_col, monetary_value_col, raw_json')
-                .eq('population_id', appState.selectedPopulation!.id)
-                .limit(queryLimit);
-
-            const timeoutRace = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Query timeout: tardó más de 20 segundos')), 20000)
-            );
-
-            const result: any = await Promise.race([supabaseQuery, timeoutRace]);
-            if (result.error) throw result.error;
-
-            // Filtro client-side: excluir las filas que ya están en la muestra piloto
-            const excludedSet = new Set(excludedIds.map(String));
-            const moreRows: any[] = (result.data || [])
-                .filter((row: any) => !excludedSet.has(String(row.unique_id_col)))
-                .slice(0, needed);
+            // ─── SERVER-SIDE EXPANSION ────────────────────────────────────────────
+            // Endpoint dedicado /api/sampling_proxy?action=expand_sample.
+            // Filtra en memoria del lado del servidor (sin NOT IN en SQL), evitando
+            // timeouts y URLs largas.  Mismo patrón que usa NonStatisticalResultsView.
+            const expandRes = await fetch('/api/sampling_proxy?action=expand_sample', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    population_id: appState.selectedPopulation!.id,
+                    existing_ids: existingIds,
+                    amount: needed
+                })
+            });
+            if (!expandRes.ok) throw new Error(`Expand failed: HTTP ${expandRes.status}`);
+            const { rows } = await expandRes.json();
+            const moreRows: any[] = rows || [];
 
             if (moreRows && moreRows.length > 0) {
                 const newItems: AuditSampleItem[] = moreRows.map((row, i) => ({

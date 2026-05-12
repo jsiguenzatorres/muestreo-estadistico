@@ -156,13 +156,21 @@ const MonetaryResultsView: React.FC<Props> = ({ appState, setAppState, role, onB
         setIsExpanding(true);
         try {
             const amountToFetch = expansionMetrics.recommendedExpansion || 25;
+            const existingIds = currentResults.sample.map(i => i.id);
 
-            const { data: moreRows } = await supabase
-                .from('audit_data_rows')
-                .select('unique_id_col, monetary_value_col, raw_json')
-                .eq('population_id', appState.selectedPopulation!.id)
-                .limit(amountToFetch)
-                .not('unique_id_col', 'in', `(${currentResults.sample.map(i => `'${i.id}'`).join(',')})`);
+            // SERVER-SIDE EXPANSION: usa endpoint dedicado /api/sampling_proxy?action=expand_sample
+            // que filtra en memoria (sin NOT IN) para evitar timeout con muchos IDs.
+            const res = await fetch('/api/sampling_proxy?action=expand_sample', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    population_id: appState.selectedPopulation!.id,
+                    existing_ids: existingIds,
+                    amount: amountToFetch
+                })
+            });
+            if (!res.ok) throw new Error(`Expand failed: HTTP ${res.status}`);
+            const { rows: moreRows } = await res.json();
 
             if (moreRows && moreRows.length > 0) {
                 const mapping = appState.selectedPopulation?.column_mapping;
